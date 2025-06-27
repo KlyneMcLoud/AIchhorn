@@ -1,0 +1,19 @@
+
+# audio_recorder:
+
+from audio_recorder import AudioRecorder
+rec = AudioRecorder()
+path = rec.record_fixed_duration(5)
+print("→ Datei gespeichert unter:", path)
+
+
+
+# transcriber:
+
+from transcriber import Transcriber
+
+t = Transcriber("small")
+text = t.transcribe("test.wav")
+print(text)
+
+t.change_model("tiny")
