@@ -1,0 +1,105 @@
+# ===========================================
+# 🧠 PRIORITÄT: Virtuelle Umgebungen
+# ===========================================
+# Niemals ins Repo – sind system- und benutzerabhängig
+.venv/
+venv/
+.env/
+env/
+
+# ===========================================
+# 🧠 Python Bytecode & Caches
+# ===========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ===========================================
+# 🧠 Editor-Projekteinstellungen
+# ===========================================
+# VS Code, PyCharm, Sublime etc.
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# ===========================================
+# 🧠 Build- & Packaging-Dateien
+# ===========================================
+# Erzeugt durch setuptools, PyInstaller, cx_Freeze, etc.
+build/
+dist/
+*.spec
+*.egg-info/
+*.manifest
+*.dll
+*.so
+*.dylib
+*.pyd
+*.c
+*.exe
+*.app
+*.deb
+*.pkg
+
+# ===========================================
+# 🧠 Temporäre & Log-Dateien
+# ===========================================
+*.log
+*.tmp
+*.bak
+*.swp
+*.~lock.*
+*.orig
+*.rej
+*~
+
+# ===========================================
+# 🧠 Jupyter & IPython
+# ===========================================
+.ipynb_checkpoints/
+.ipython/
+profile_default/
+
+# ===========================================
+# 🧠 Tests & Coverage
+# ===========================================
+htmlcov/
+.tox/
+.nox/
+.coverage
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+
+# ===========================================
+# 🧠 Mediendateien / große Binärdaten (optional)
+# ===========================================
+# Wenn du Audioaufnahmen, Modelle etc. lokal hältst
+*.wav
+*.mp3
+*.ogg
+*.mp4
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.db
+*.pt
+*.bin
+*.onnx
+
+# ===========================================
+# 🧠 OS-spezifische Dateien
+# ===========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===========================================
+# 🧠 Whisper / Model Caches (optional)
+# ===========================================
+.whisper/
+
+.obsidian/

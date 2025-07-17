@@ -10,6 +10,7 @@ import time
 import pyperclip
 import keyboard
 import platform
+import torch
 
 from whisper_x.transcriber import Transcriber
 from whisper_x.audio_recorder import AudioRecorder
@@ -56,10 +57,10 @@ class FLUIDster(QWidget):
         self.output_box = QTextEdit()
         self.output_box.setReadOnly(True)
 
-        self.record_btn = QPushButton("🎤 Aufnahme starten")
+        self.record_btn = QPushButton("🎤 Aufnahme starten\n(Strg+Shift+C)")
         self.record_btn.clicked.connect(self._start_recording_thread)
 
-        self.stop_btn = QPushButton("🛑 Aufnahme stoppen")
+        self.stop_btn = QPushButton("🛑\nAufnahme stoppen")
         self.stop_btn.clicked.connect(self._stop_recording)
 
         self.timer_label = QLabel("Dauer: 0.0 s")
@@ -181,6 +182,9 @@ class FLUIDster(QWidget):
         self.gpu_label.setText("GPU: " + text.replace("\n", " | "))
         QTimer.singleShot(3000, self._update_gpu_status)
     
+print("CUDA aktiviert:", torch.cuda.is_available())
+print("GPU-Name:", torch.cuda.get_device_name(0))
+print("CUDA-Version:", torch.version.cuda)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
