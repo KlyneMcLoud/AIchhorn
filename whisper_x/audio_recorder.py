@@ -28,7 +28,7 @@ class AudioRecorder:
         self.recording.append(data.copy())
         return self._save_to_tempfile()
 
-    def record_until_silence(self, silence_threshold=200, silence_duration=5):
+    def record_until_silence(self, silence_threshold=250, silence_duration=3):
         self._stop_event.clear()
         self.recording = []
         chunk_size = int(self.sample_rate * self.chunk_duration)

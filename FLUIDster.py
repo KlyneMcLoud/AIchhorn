@@ -6,9 +6,16 @@ from qtpy.QtCore import QTimer, Signal, QObject
 from qtpy.QtGui import QIntValidator
 import sys
 import threading
+import time
+import pyperclip
+import keyboard
+import platform
+
 from whisper_x.transcriber import Transcriber
 from whisper_x.audio_recorder import AudioRecorder
-import time
+
+if platform.system() == "Windows":
+    import winsound
 
 class Communicator(QObject):
     status_update = Signal(str)
@@ -26,6 +33,7 @@ class FLUIDster(QWidget):
         self.signals = Communicator()
         self.signals.status_update.connect(self._update_status)
         self.signals.output_update.connect(self.output_box_set_text)
+        self.signals.timer_update.connect(self._update_timer_label)
 
         self.auto_stop = QCheckBox("Stille -> Auto-Stopp")
         self.auto_stop.setChecked(True)
@@ -55,10 +63,10 @@ class FLUIDster(QWidget):
         self.stop_btn.clicked.connect(self._stop_recording)
 
         self.timer_label = QLabel("Dauer: 0.0 s")
-        self.signals.timer_update.connect(self._update_timer_label)
 
         self._build_interface()
         self._update_gpu_status()
+        self._setup_global_hotkey()
 
     def _build_interface(self):
         layout = QVBoxLayout()
@@ -87,21 +95,29 @@ class FLUIDster(QWidget):
 
         self.setLayout(layout)
 
-    def _update_timer_label(self, text):
-        self.timer_label.setText(text)
+    def _setup_global_hotkey(self):
+        try:
+            keyboard.add_hotkey("ctrl+shift+c", self._start_hotkey_thread)
+        except Exception as e:
+            print(f"⚠️ Hotkey konnte nicht registriert werden: {e}")
 
-    def _toggle_rec_length(self):
-        self.rec_length.setEnabled(not self.auto_stop.isChecked())
+    def _start_hotkey_thread(self):
+        threading.Thread(target=self._hotkey_action, daemon=True).start()
 
-    def _on_model_change(self, name):
-        self.status_label.setText(f"📦 Lade Modell: {name}...")
-        QApplication.processEvents()
-        self.transcriber.change_model(name)
-        self.status_label.setText(f"✅ Modell '{name}' geladen")
+    def _hotkey_action(self):
+        self._beep()
+        try:
+            path = self.recorder.record_until_silence()
+            text = self.transcriber.transcribe(path)
+            pyperclip.copy(text)
+            self.signals.output_update.emit(text)
+            self.signals.status_update.emit("✔ Transkribiert (Hotkey)")
+            self._beep(freq=800)
+        except Exception as e:
+            self.signals.status_update.emit(f"❌ Fehler (Hotkey): {e}")
 
     def _start_recording_thread(self):
         threading.Thread(target=self._record_and_transcribe, daemon=True).start()
-
 
     def _record_and_transcribe(self):
         start_time = time.time()
@@ -111,10 +127,8 @@ class FLUIDster(QWidget):
                 self.signals.timer_update.emit(f"Dauer: {elapsed:.1f} s")
                 time.sleep(0.2)
 
-        timer_thread = threading.Thread(target=update_timer, daemon=True)
-        timer_thread.start()
+        threading.Thread(target=update_timer, daemon=True).start()
         self.signals.status_update.emit("🎙️ Aufnahme läuft...")
-
 
         try:
             if self.auto_stop.isChecked():
@@ -124,6 +138,7 @@ class FLUIDster(QWidget):
                 path = self.recorder.record_fixed_duration(max_rec)
             self.signals.status_update.emit("🧠 Transkribiere...")
             text = self.transcriber.transcribe(path)
+            pyperclip.copy(text)
             self.signals.status_update.emit("✔ Transkribiert")
             self.signals.output_update.emit(text)
         except Exception as e:
@@ -133,15 +148,39 @@ class FLUIDster(QWidget):
         self.recorder.stop()
         self.status_label.setText("🛑 Aufnahme wird gestoppt...")
 
-    def _update_gpu_status(self):
-        self.gpu_label.setText("GPU: " + self.transcriber.get_gpu_usage_text().replace("\n", " | "))
-        QTimer.singleShot(3000, self._update_gpu_status)
+    def _on_model_change(self, name):
+        self.status_label.setText(f"📦 Lade Modell: {name}...")
+        QApplication.processEvents()
+        self.transcriber.change_model(name)
+        self.status_label.setText(f"✅ Modell '{name}' über cuda geladen.")
+
+    def _toggle_rec_length(self):
+        self.rec_length.setEnabled(not self.auto_stop.isChecked())
+
+    def _update_timer_label(self, text):
+        self.timer_label.setText(text)
 
     def _update_status(self, text):
         self.status_label.setText(text)
 
     def output_box_set_text(self, text):
         self.output_box.setPlainText(text)
+
+    def _beep(self, freq=700, dur=100):
+        if platform.system() == "Windows":
+            try:
+                winsound.Beep(freq, dur)
+            except RuntimeError:
+                pass  # Falls kein Sound verfügbar ist
+
+    def _update_gpu_status(self):
+        try:
+            text = self.transcriber.get_gpu_usage_text()
+        except Exception as e:
+            text = f"Fehler: {e}"
+        self.gpu_label.setText("GPU: " + text.replace("\n", " | "))
+        QTimer.singleShot(3000, self._update_gpu_status)
+    
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
