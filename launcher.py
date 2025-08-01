@@ -1,4 +1,3 @@
-# launcher.py
 from fluxframe.gui import run_gui
 
 if __name__ == "__main__":
