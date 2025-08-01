@@ -8,8 +8,11 @@ class LogPanel(QtWidgets.QTextEdit):
         super().__init__(parent)
         self.setReadOnly(True)
     def log(self, msg):
-        self.append(msg)
-        self.moveCursor(QtGui.QTextCursor.End)
+        # Immer im Hauptthread ausführen!
+        def append_msg():
+            self.append(msg)
+            self.moveCursor(QtGui.QTextCursor.End)
+        QtCore.QTimer.singleShot(0, append_msg)
 
 class FluxFrameGUI(QtWidgets.QMainWindow):
     def __init__(self):
