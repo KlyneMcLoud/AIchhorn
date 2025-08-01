@@ -1,0 +1,1 @@
+python -c "raise Exception('KAPUTT')"
