@@ -1,122 +1,139 @@
 import os
 import sqlite3
-import threading
-import time
 import json
+from pathlib import Path
+from datetime import datetime
 
-# Standardpfad: TMP/sync-index.db (automatisch angelegt)
-_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../TMP/sync-index.db"))
-_DB_LOCK = threading.Lock()
+# DB-Pfad konfigurierbar via Umgebungsvariable
+DB_PATH = Path(os.getenv('FLUX_DB_PATH', default='TMP/sync-index.db'))
+JSON_PATH = DB_PATH.with_name('latest_index.json')
+MD_PATH = DB_PATH.with_name('latest_index.md')
 
-def init_db(db_path=None):
-    """Initialisiert die zentrale SQLite-Datenbank für den Index."""
-    global _DB_PATH
-    if db_path:
-        _DB_PATH = db_path
-    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
-    with _DB_LOCK, sqlite3.connect(_DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute("""
+# Hilfsfunktion zur Initialisierung der DB
+def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        '''
         CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            context TEXT,         -- Freie Kontextinfos als JSON-String (z.B. welcher Job/Modul etc.)
-            path TEXT NOT NULL,   -- Relativer Pfad
-            name TEXT NOT NULL,   -- Name der Datei/des Ordners
-            type TEXT NOT NULL,   -- 'file' oder 'dir'
-            size INTEGER,         -- Dateigröße (Bytes), Ordner: None
-            mtime REAL,           -- Änderungszeitpunkt (Unix-Timestamp)
-            ctime REAL,           -- Erstellzeitpunkt (Unix-Timestamp)
-            extension TEXT,       -- Dateiendung ohne Punkt, Ordner: ""
-            indexed_at REAL       -- Zeitstempel des Indexlaufs (Unix-Timestamp)
+            path TEXT,
+            name TEXT,
+            type TEXT,
+            size INTEGER,
+            mtime REAL,
+            ctime REAL,
+            extension TEXT,
+            indexed_at REAL,
+            PRIMARY KEY(path, name)
         )
-        """)
-        conn.commit()
+        '''
+    )
+    conn.commit()
+    conn.close()
 
-def store_index_entries(entries, context=None):
-    """
-    Speichert eine Liste von Datei-/Ordner-Einträgen zusammen mit Kontextinfos.
-    - entries: Liste von Dicts mit Feldern wie in make_entry()
-    - context: beliebiges Dict, wird als JSON gespeichert (z.B. Aufrufer, Parameter)
-    """
-    if not entries:
-        return
-    context_str = json.dumps(context, ensure_ascii=False) if context else None
-    now = time.time()
-    with _DB_LOCK, sqlite3.connect(_DB_PATH) as conn:
-        c = conn.cursor()
-        for e in entries:
-            c.execute("""
-                INSERT INTO files (
-                    context, path, name, type, size, mtime, ctime, extension, indexed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                context_str,
-                e.get("path"),
-                e.get("name"),
-                e.get("type"),
-                e.get("size"),
-                e.get("mtime"),
-                e.get("ctime"),
-                e.get("extension"),
-                now
-            ))
-        conn.commit()
-
-def get_entries(filters=None, limit=5000, order_by="indexed_at DESC"):
-    """
-    Holt Einträge als Liste von Dicts.
-    - filters: Dict, z.B. {"type": "file", "extension": "txt"}
-    - limit: max. Anzahl Ergebnisse (default: 5000)
-    - order_by: Sortierung (default: letzter Indexlauf zuerst)
-    """
-    with _DB_LOCK, sqlite3.connect(_DB_PATH) as conn:
-        c = conn.cursor()
-        query = "SELECT id, context, path, name, type, size, mtime, ctime, extension, indexed_at FROM files"
-        params = []
-        if filters:
-            cond = []
-            for k, v in filters.items():
-                cond.append(f"{k}=?")
-                params.append(v)
-            if cond:
-                query += " WHERE " + " AND ".join(cond)
-        if order_by:
-            query += " ORDER BY " + order_by
-        if limit:
-            query += f" LIMIT {limit}"
-        c.execute(query, params)
-        cols = [desc[0] for desc in c.description]
-        results = []
-        for row in c.fetchall():
-            d = dict(zip(cols, row))
-            if d["context"]:
-                try:
-                    d["context"] = json.loads(d["context"])
-                except Exception:
-                    pass
-            results.append(d)
-        return results
-
-def make_entry(path, name, typ, size=None, mtime=None, ctime=None, extension=""):
-    """
-    Hilfsfunktion: Baut einen Eintrag für store_index_entries.
-    """
+# Erzeuge Entry-Dict für Datei oder Verzeichnis
+def make_entry(file_path, context=None):
+    st = os.stat(file_path)
     return {
-        "path": path,
-        "name": name,
-        "type": typ,
-        "size": size,
-        "mtime": mtime,
-        "ctime": ctime,
-        "extension": extension or "",
+        'path': str(Path(file_path).parent),
+        'name': Path(file_path).name,
+        'type': 'directory' if Path(file_path).is_dir() else 'file',
+        'size': st.st_size,
+        'mtime': st.st_mtime,
+        'ctime': st.st_ctime,
+        'extension': Path(file_path).suffix,
+        'indexed_at': datetime.now().timestamp(),
     }
 
-def clear_all_entries():
-    """Alle gespeicherten Einträge löschen (Vorsicht!)."""
-    with _DB_LOCK, sqlite3.connect(_DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute("DELETE FROM files")
-        conn.commit()
+# Erstelle/Ersetze kompletten Index
+def replace_entries(entries):
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Alle bisherigen Einträge löschen
+    c.execute('DELETE FROM files')
+    # Batch-Insert
+    data = [(e['path'], e['name'], e['type'], e['size'], e['mtime'], e['ctime'], e['extension'], e['indexed_at'])
+            for e in entries]
+    c.executemany(
+        '''
+        INSERT INTO files (path, name, type, size, mtime, ctime, extension, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        data
+    )
+    conn.commit()
+    conn.close()
+    _export_outputs()
 
-# Beim Import direkt initialisieren (wenn gewünscht)
-init_db()
+# Füge Entry hinzu oder aktualisiere es
+def upsert_entry(entry):
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        '''
+        INSERT INTO files (path, name, type, size, mtime, ctime, extension, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(path, name) DO UPDATE SET
+            type=excluded.type,
+            size=excluded.size,
+            mtime=excluded.mtime,
+            ctime=excluded.ctime,
+            extension=excluded.extension,
+            indexed_at=excluded.indexed_at
+        ''',
+        (entry['path'], entry['name'], entry['type'], entry['size'], entry['mtime'], entry['ctime'], entry['extension'], entry['indexed_at'])
+    )
+    conn.commit()
+    conn.close()
+    _export_outputs()
+
+# Entferne Entry
+def delete_entry(file_path):
+    p = Path(file_path)
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM files WHERE path = ? AND name = ?', (str(p.parent), p.name))
+    conn.commit()
+    conn.close()
+    _export_outputs()
+
+# Lese alle Einträge
+def get_entries():
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT path, name, type, size, mtime, ctime, extension, indexed_at FROM files')
+    rows = c.fetchall()
+    conn.close()
+    # In dict-Form
+    entries = []
+    for r in rows:
+        entries.append({
+            'path': r[0], 'name': r[1], 'type': r[2],
+            'size': r[3], 'mtime': r[4], 'ctime': r[5],
+            'extension': r[6], 'indexed_at': r[7]
+        })
+    return entries
+
+# Exportiere JSON und Markdown der aktuellen Einträge
+def _export_outputs():
+    entries = get_entries()
+    # JSON
+    with open(JSON_PATH, 'w', encoding='utf-8') as jf:
+        json.dump(entries, jf, ensure_ascii=False, indent=2)
+    # Markdown
+    lines = [
+        '| Path | Name | Type | Size | Modified | Created | Extension |',
+        '|---|---|---|---|---|---|---|'
+    ]
+    for e in entries:
+        lines.append(
+            f"| {e['path']} | {e['name']} | {e['type']} | {e['size']} |"
+            f" {datetime.fromtimestamp(e['mtime']).isoformat()} | {datetime.fromtimestamp(e['ctime']).isoformat()} | {e['extension']} |"
+        )
+    with open(MD_PATH, 'w', encoding='utf-8') as mf:
+        mf.write('\n'.join(lines))

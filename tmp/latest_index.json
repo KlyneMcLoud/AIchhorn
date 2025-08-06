@@ -1,0 +1,52 @@
+[
+  {
+    "path": "C:\\Users\\klyne\\Zero-Protocol",
+    "name": "main_save.svs",
+    "type": "file",
+    "size": 1546904,
+    "mtime": 1738709681.9805472,
+    "ctime": 1738707610.6952436,
+    "extension": ".svs",
+    "indexed_at": 1754507543.292225
+  },
+  {
+    "path": "C:\\Users\\klyne\\Zero-Protocol",
+    "name": "save_backup.svs",
+    "type": "file",
+    "size": 1533988,
+    "mtime": 1738709398.5783985,
+    "ctime": 1738707610.6952436,
+    "extension": ".svs",
+    "indexed_at": 1754507543.292642
+  },
+  {
+    "path": "C:\\Users\\klyne\\Zero-Protocol",
+    "name": "settings.svs",
+    "type": "file",
+    "size": 408,
+    "mtime": 1738709684.6585982,
+    "ctime": 1738707451.5474813,
+    "extension": ".svs",
+    "indexed_at": 1754507543.292988
+  },
+  {
+    "path": "C:\\Users\\klyne\\Zero-Protocol",
+    "name": "snapshot.png",
+    "type": "file",
+    "size": 87017,
+    "mtime": 1738709215.5754716,
+    "ctime": 1738707665.8850262,
+    "extension": ".png",
+    "indexed_at": 1754507543.29336
+  },
+  {
+    "path": "C:\\Users\\klyne\\Zero-Protocol",
+    "name": "start_level.svs",
+    "type": "file",
+    "size": 286212,
+    "mtime": 1738707582.2269573,
+    "ctime": 1738707582.2269573,
+    "extension": ".svs",
+    "indexed_at": 1754507543.293646
+  }
+]

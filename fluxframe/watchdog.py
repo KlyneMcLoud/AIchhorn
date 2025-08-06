@@ -1,100 +1,74 @@
-from PyQt5 import QtCore
 import os
-import time
-from . import storage
+from pathlib import Path
+from datetime import datetime
+from PyQt5.QtCore import QThread, pyqtSignal
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-class SyncFolderWatcher(QtCore.QThread):
-    log_signal = QtCore.pyqtSignal(str)
-    finished_signal = QtCore.pyqtSignal()
+from fluxframe import storage
 
-    def __init__(self, sync_path, interval_getter):
+class ChangeHandler(FileSystemEventHandler):
+    def __init__(self, signal):
         super().__init__()
-        self.sync_path = sync_path
-        self.interval_getter = interval_getter
-        self._stop = False
+        self.signal = signal
+
+    def process(self, event_type, src_path, dest_path=None):
+        # Ordnerstruktur nicht ändern
+        p = Path(dest_path or src_path)
+        if p.is_dir():
+            return
+
+        if event_type == 'deleted':
+            storage.delete_entry(src_path)
+            self.signal.emit(f"Entfernt: {src_path}")
+        else:
+            entry = storage.make_entry(dest_path or src_path)
+            storage.upsert_entry(entry)
+            self.signal.emit(f"{event_type.capitalize()}: {p}")
+
+    def on_created(self, event):
+        self.process('created', event.src_path)
+
+    def on_modified(self, event):
+        self.process('modified', event.src_path)
+
+    def on_moved(self, event):
+        # Lösche altes und füge neues hinzu
+        self.process('deleted', event.src_path)
+        self.process('created', None, event.dest_path)
+
+    def on_deleted(self, event):
+        self.process('deleted', event.src_path)
+
+class SyncFolderWatcher(QThread):
+    update_signal = pyqtSignal(str)
+
+    def __init__(self, folder_path):
+        super().__init__()
+        self.folder_path = Path(folder_path)
+        self.observer = Observer()
 
     def run(self):
+        # Initialer Voll-Scan
+        entries = []
+        for root, dirs, files in os.walk(self.folder_path):
+            for name in dirs + files:
+                full = Path(root) / name
+                entries.append(storage.make_entry(full))
+        storage.replace_entries(entries)
+        # Korrigierter Signal-Emit-Aufruf
+        self.update_signal.emit(f"Initialer Scan abgeschlossen: {self.folder_path}")
+
+        # Dann inkrementelle Überwachung
+        handler = ChangeHandler(self.update_signal)
+        self.observer.schedule(handler, str(self.folder_path), recursive=True)
+        self.observer.start()
         try:
-            while not self._stop:
-                # Logging zur Kontrolle
-                self.log_signal.emit(f"[INFO] Starte Indexierung von: {self.sync_path}")
-
-                if not os.path.exists(self.sync_path):
-                    self.log_signal.emit(f"[ERROR] Ordner nicht gefunden: {self.sync_path}")
-                    time.sleep(2)
-                    continue
-
-                entries = []
-                num_dirs, num_files = 0, 0
-
-                for root, dirs, files in os.walk(self.sync_path):
-                    rel = os.path.relpath(root, self.sync_path)
-                    for d in dirs:
-                        p = os.path.join(rel, d) if rel != '.' else d
-                        full_path = os.path.join(root, d)
-                        try:
-                            st = os.stat(full_path)
-                        except Exception as e:
-                            self.log_signal.emit(f"[WARN] Zugriff auf {full_path} fehlgeschlagen: {e}")
-                            continue
-                        entries.append(storage.make_entry(
-                            path=p,
-                            name=d,
-                            typ="dir",
-                            size=None,
-                            mtime=st.st_mtime,
-                            ctime=st.st_ctime,
-                            extension=""
-                        ))
-                        num_dirs += 1
-                    for f in files:
-                        p = os.path.join(rel, f) if rel != '.' else f
-                        full_path = os.path.join(root, f)
-                        try:
-                            st = os.stat(full_path)
-                        except Exception as e:
-                            self.log_signal.emit(f"[WARN] Zugriff auf {full_path} fehlgeschlagen: {e}")
-                            continue
-                        ext = os.path.splitext(f)[1][1:]  # ohne Punkt
-                        entries.append(storage.make_entry(
-                            path=p,
-                            name=f,
-                            typ="file",
-                            size=st.st_size,
-                            mtime=st.st_mtime,
-                            ctime=st.st_ctime,
-                            extension=ext
-                        ))
-                        num_files += 1
-
-                self.log_signal.emit(f"Indexierung abgeschlossen ({num_dirs} Ordner, {num_files} Dateien, {len(entries)} Einträge).")
-                
-                # Kontext-Info für spätere Auswertung
-                context = {
-                    "modul": "watchdog",
-                    "ordner": self.sync_path,
-                    "index_time": time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-                try:
-                    storage.store_index_entries(entries, context)
-                    self.log_signal.emit(f"Einträge in zentrale DB gespeichert. (Letzter Indexlauf: {context['index_time']})")
-                except Exception as e:
-                    import traceback
-                    self.log_signal.emit(f"[DB-ERROR]: {traceback.format_exc()}")
-
-                # Pause/Schlafphase nach Indexlauf
-                try:
-                    wait = int(self.interval_getter())
-                except Exception:
-                    wait = 10
-                for _ in range(wait * 10):
-                    if self._stop:
-                        break
-                    time.sleep(0.1)
-        except Exception:
-            import traceback
-            self.log_signal.emit(f"[EXCEPTION]: {traceback.format_exc()}")
-        self.finished_signal.emit()
+            self.observer.join()
+        finally:
+            self.observer.stop()
+            self.observer.join()
 
     def stop(self):
-        self._stop = True
+        self.observer.stop()
+        self.observer.join()
