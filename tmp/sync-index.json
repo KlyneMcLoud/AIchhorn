@@ -33,6 +33,10 @@
   },
   {
     "type": "file",
+    "path": "gettaht.txt"
+  },
+  {
+    "type": "file",
     "path": "_sync.lnk"
   },
   {

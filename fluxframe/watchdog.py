@@ -1,7 +1,7 @@
 from PyQt5 import QtCore
 import os
 import time
-import json
+from . import storage
 
 class SyncFolderWatcher(QtCore.QThread):
     log_signal = QtCore.pyqtSignal(str)
@@ -16,26 +16,73 @@ class SyncFolderWatcher(QtCore.QThread):
     def run(self):
         try:
             while not self._stop:
+                # Logging zur Kontrolle
+                self.log_signal.emit(f"[INFO] Starte Indexierung von: {self.sync_path}")
+
                 if not os.path.exists(self.sync_path):
                     self.log_signal.emit(f"[ERROR] Ordner nicht gefunden: {self.sync_path}")
                     time.sleep(2)
                     continue
 
                 entries = []
-                entries_json = []
+                num_dirs, num_files = 0, 0
+
                 for root, dirs, files in os.walk(self.sync_path):
                     rel = os.path.relpath(root, self.sync_path)
                     for d in dirs:
                         p = os.path.join(rel, d) if rel != '.' else d
-                        entries.append(f"[DIR]  {p}")
-                        entries_json.append({"type": "dir", "path": p})
+                        full_path = os.path.join(root, d)
+                        try:
+                            st = os.stat(full_path)
+                        except Exception as e:
+                            self.log_signal.emit(f"[WARN] Zugriff auf {full_path} fehlgeschlagen: {e}")
+                            continue
+                        entries.append(storage.make_entry(
+                            path=p,
+                            name=d,
+                            typ="dir",
+                            size=None,
+                            mtime=st.st_mtime,
+                            ctime=st.st_ctime,
+                            extension=""
+                        ))
+                        num_dirs += 1
                     for f in files:
                         p = os.path.join(rel, f) if rel != '.' else f
-                        entries.append(f"[FILE] {p}")
-                        entries_json.append({"type": "file", "path": p})
-                self.log_signal.emit(f"Indexierung abgeschlossen ({len(entries_json)} Einträge).")
-                self.save_index(entries, entries_json)
+                        full_path = os.path.join(root, f)
+                        try:
+                            st = os.stat(full_path)
+                        except Exception as e:
+                            self.log_signal.emit(f"[WARN] Zugriff auf {full_path} fehlgeschlagen: {e}")
+                            continue
+                        ext = os.path.splitext(f)[1][1:]  # ohne Punkt
+                        entries.append(storage.make_entry(
+                            path=p,
+                            name=f,
+                            typ="file",
+                            size=st.st_size,
+                            mtime=st.st_mtime,
+                            ctime=st.st_ctime,
+                            extension=ext
+                        ))
+                        num_files += 1
 
+                self.log_signal.emit(f"Indexierung abgeschlossen ({num_dirs} Ordner, {num_files} Dateien, {len(entries)} Einträge).")
+                
+                # Kontext-Info für spätere Auswertung
+                context = {
+                    "modul": "watchdog",
+                    "ordner": self.sync_path,
+                    "index_time": time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                try:
+                    storage.store_index_entries(entries, context)
+                    self.log_signal.emit(f"Einträge in zentrale DB gespeichert. (Letzter Indexlauf: {context['index_time']})")
+                except Exception as e:
+                    import traceback
+                    self.log_signal.emit(f"[DB-ERROR]: {traceback.format_exc()}")
+
+                # Pause/Schlafphase nach Indexlauf
                 try:
                     wait = int(self.interval_getter())
                 except Exception:
@@ -44,33 +91,10 @@ class SyncFolderWatcher(QtCore.QThread):
                     if self._stop:
                         break
                     time.sleep(0.1)
-        except Exception as e:
+        except Exception:
             import traceback
             self.log_signal.emit(f"[EXCEPTION]: {traceback.format_exc()}")
         self.finished_signal.emit()
 
     def stop(self):
         self._stop = True
-
-    def save_index(self, entries, entries_json):
-        tmp_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../TMP"))
-        os.makedirs(tmp_path, exist_ok=True)
-        md_file = os.path.join(tmp_path, "sync-index.md")
-        json_file = os.path.join(tmp_path, "sync-index.json")
-
-        try:
-            # Markdown
-            with open(md_file, "w", encoding="utf-8") as f:
-                f.write("# Sync-Ordner Index\n\n")
-                for line in entries:
-                    if line.startswith("[DIR]"):
-                        f.write(f"## {line[6:]}\n")
-                    else:
-                        f.write(f"- {line[7:]}\n")
-            # JSON
-            with open(json_file, "w", encoding="utf-8") as f:
-                json.dump(entries_json, f, indent=2, ensure_ascii=False)
-            self.log_signal.emit(f"Index gespeichert: {md_file}, {json_file}")
-        except Exception as e:
-            import traceback
-            self.log_signal.emit(f"[Fehler beim Speichern]: {traceback.format_exc()}")

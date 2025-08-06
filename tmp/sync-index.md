@@ -8,6 +8,7 @@
 ##  _backupObsTmp
 ##  _dontshredmiBackup
 ##  _mobileSync
+- gettaht.txt
 - _sync.lnk
 ##  Cogitum\.obsidian
 ##  Cogitum\.stfolder
