@@ -4,6 +4,8 @@
 # Niemals ins Repo – sind system- und benutzerabhängig
 .venv/
 venv/
+.venv*/
+venv*/
 .env/
 env/
 _backup/
