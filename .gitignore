@@ -9,6 +9,7 @@ venv*/
 .env/
 env/
 _backup/
+.venv310/
 
 # ===========================================
 # 🧠 Python Bytecode & Caches
@@ -56,6 +57,8 @@ dist/
 *.orig
 *.rej
 *~
+tmp/
+_output/
 
 # ===========================================
 # 🧠 Jupyter & IPython
